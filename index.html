@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jelajah Ekosistem 3D - Multiplayer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Nunito:wght@700;900&display=swap');
+        
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #87CEEB; /* Fallback sky color */
+            touch-action: none; /* Prevent scroll on touch devices */
+        }
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        .game-font {
+            font-family: 'Nunito', sans-serif;
+        }
+
+        /* Player Name Labels */
+        .player-label {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            white-space: nowrap;
+            transition: all 0.1s linear;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        /* Custom Scrollbar for Leaderboard */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.5); border-radius: 10px; }
+
+        /* Control Buttons */
+        .control-btn {
+            background: rgba(255, 255, 255, 0.8);
+            border: 2px solid #333;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 20px;
+            user-select: none;
+            box-shadow: 0 4px 0 #333;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .control-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0px 0 #333;
+            background: #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Player Labels Container -->
+    <div id="labels-container" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer" class="absolute inset-0 pointer-events-none flex flex-col justify-between">
+        
+        <!-- Top HUD -->
+        <div class="flex justify-between items-start p-4 w-full">
+            <!-- Score & Info -->
+            <div class="bg-white/90 backdrop-blur-sm p-4 rounded-2xl shadow-xl border-4 border-emerald-500 pointer-events-auto max-w-xs">
+                <h1 class="game-font text-2xl text-emerald-700 leading-tight">Jelajah Ekosistem</h1>
+                <div class="mt-2 text-slate-700 text-sm font-semibold">Skor Kamu: <span id="hud-score" class="text-2xl text-emerald-600 ml-1">0</span></div>
+                <div class="mt-1 text-xs text-slate-500">Cari makhluk hidup dan benda di sekitar! W,A,S,D untuk jalan.</div>
+            </div>
+
+            <!-- Leaderboard -->
+            <div class="bg-white/90 backdrop-blur-sm p-3 rounded-2xl shadow-xl border-4 border-blue-400 pointer-events-auto w-48 hidden md:block">
+                <h2 class="game-font text-lg text-blue-700 text-center border-b-2 border-blue-200 pb-1 mb-2">Peringkat</h2>
+                <div id="leaderboard-list" class="max-h-40 overflow-y-auto flex flex-col gap-1 text-sm font-medium">
+                    <!-- Leaderboard items go here -->
+                    <div class="text-center text-gray-400 text-xs py-2">Memuat...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Notification (Interact Prompt) -->
+        <div class="flex justify-center w-full mb-8">
+            <div id="interact-prompt" class="hidden bg-yellow-400 text-yellow-900 border-4 border-yellow-600 px-6 py-3 rounded-full font-bold shadow-lg animate-bounce pointer-events-auto cursor-pointer transition-transform hover:scale-105">
+                Pencet (E) atau Klik untuk Periksa!
+            </div>
+        </div>
+
+        <!-- Mobile Controls (Visible on small screens) -->
+        <div class="md:hidden flex justify-between items-end w-full p-6 pb-12 pointer-events-auto">
+            <!-- Virtual Joystick -->
+            <div id="joystick-zone" class="relative w-32 h-32 bg-white/20 border-2 border-white/50 rounded-full shadow-lg touch-none flex items-center justify-center">
+                <div id="joystick-knob" class="absolute w-14 h-14 bg-white/90 rounded-full shadow-md top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-transform duration-75"></div>
+            </div>
+            
+            <!-- Action Button -->
+            <div class="flex items-end">
+                <button id="btn-action" class="w-24 h-24 rounded-full text-sm border-4 border-emerald-600 shadow-[0_6px_0_#059669] bg-emerald-400 text-white font-black active:translate-y-2 active:shadow-none transition-all touch-none">
+                    PERIKSA
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Screen -->
+    <div id="login-screen" class="absolute inset-0 bg-emerald-800/90 backdrop-blur-md flex items-center justify-center z-50">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full border-8 border-emerald-500 text-center transform transition-all scale-100">
+            <div class="w-24 h-24 bg-emerald-100 rounded-full mx-auto mb-4 flex items-center justify-center border-4 border-emerald-400">
+                <span class="text-4xl">🌍</span>
+            </div>
+            <h1 class="game-font text-3xl text-emerald-800 mb-2">Jelajah Ekosistem</h1>
+            <p class="text-slate-600 mb-6 text-sm">Pelajari Rantai Makanan & Lingkungan Biotik Abiotik Kelas 5 SD bersama teman-temanmu!</p>
+            
+            <input type="text" id="player-name-input" placeholder="Masukkan Nama Kamu" class="w-full px-4 py-3 rounded-xl border-2 border-slate-300 focus:border-emerald-500 focus:outline-none mb-4 text-center font-bold text-lg text-slate-700" maxlength="15">
+            
+            <button id="start-btn" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-xl shadow-[0_6px_0_#059669] active:shadow-[0_0px_0_#059669] active:translate-y-1 transition-all text-xl">
+                Mulai Bermain!
+            </button>
+            <div id="login-status" class="mt-4 text-sm text-emerald-600 font-semibold h-4"></div>
+        </div>
+    </div>
+
+    <!-- Quiz Modal -->
+    <div id="quiz-modal" class="hidden absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 pointer-events-auto">
+        <div class="bg-white p-6 rounded-3xl shadow-2xl max-w-lg w-full border-8 border-blue-400 m-4 animate-[bounce_0.3s_ease-out_1]">
+            <div class="flex justify-between items-start mb-4">
+                <h2 id="quiz-title" class="game-font text-2xl text-blue-800">Kamu menemukan Benda!</h2>
+                <button id="close-quiz-btn" class="text-slate-400 hover:text-red-500 font-bold text-xl">&times;</button>
+            </div>
+            
+            <p id="quiz-question" class="text-slate-700 mb-6 text-lg font-medium">Apa peran makhluk hidup ini dalam ekosistem?</p>
+            
+            <div id="quiz-options" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- Options injected via JS -->
+            </div>
+            
+            <div id="quiz-feedback" class="mt-4 hidden p-3 rounded-xl text-center font-bold text-lg"></div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configuration & Initialization ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ekosistem-ipas-5-app';
+        let firebaseConfig = null;
+        try {
+            if (typeof __firebase_config !== 'undefined') {
+                firebaseConfig = JSON.parse(__firebase_config);
+            }
+        } catch (e) {
+            console.error("Error parsing firebase config", e);
+        }
+
+        let app, db, auth;
+        let currentUser = null;
+        let playerDocRef = null;
+        let unsubPlayers = null;
+        let isFirebaseReady = false;
+
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        }
+
+        // --- Game State ---
+        let playerName = "";
+        let playerScore = 0;
+        let myColor = Math.random() * 0xffffff;
+        const otherPlayers = new Map(); // Store meshes and labels of other players
+        const answeredObjects = new Set(); // Keep track of answered objects to prevent double scoring
+
+        // --- IPAS Ecosystem Data (Content) ---
+        const roleOptions = [
+            "Produsen (Pembuat Makanan)", 
+            "Konsumen 1 (Herbivora)", 
+            "Konsumen 2 (Karnivora/Omnivora)", 
+            "Konsumen Puncak (Predator)", 
+            "Pengurai (Dekomposer)", 
+            "Komponen Abiotik (Tak Hidup)"
+        ];
+
+        const ecosystemEntities = [
+            { type: 'Pohon Mangga', role: 'Produsen (Pembuat Makanan)', desc: 'Menghasilkan makanan sendiri lewat fotosintesis.', model: 'tree' },
+            { type: 'Rumput Liar', role: 'Produsen (Pembuat Makanan)', desc: 'Sumber makanan utama herbivora.', model: 'grass' },
+            { type: 'Kelinci', role: 'Konsumen 1 (Herbivora)', desc: 'Memakan rumput dan sayuran.', model: 'animal_small', color: 0xFFFFFF },
+            { type: 'Belalang', role: 'Konsumen 1 (Herbivora)', desc: 'Serangga pemakan daun.', model: 'animal_small', color: 0x90EE90 },
+            { type: 'Ayam', role: 'Konsumen 2 (Karnivora/Omnivora)', desc: 'Memakan biji-bijian dan serangga seperti belalang.', model: 'animal_medium', color: 0x8B4513 },
+            { type: 'Katak', role: 'Konsumen 2 (Karnivora/Omnivora)', desc: 'Pemakan serangga kecil.', model: 'animal_small', color: 0x32CD32 },
+            { type: 'Ular sawah', role: 'Konsumen Puncak (Predator)', desc: 'Karnivora tingkat atas yang memakan katak atau ayam.', model: 'animal_long', color: 0x556B2F },
+            { type: 'Elang', role: 'Konsumen Puncak (Predator)', desc: 'Predator yang berburu ular atau kelinci.', model: 'animal_medium', color: 0xA0522D },
+            { type: 'Jamur', role: 'Pengurai (Dekomposer)', desc: 'Menguraikan makhluk hidup yang sudah mati.', model: 'mushroom' },
+            { type: 'Cacing Tanah', role: 'Pengurai (Dekomposer)', desc: 'Membantu menguraikan sisa organisme di tanah.', model: 'mushroom', color: 0xCD853F },
+            { type: 'Batu Sungai', role: 'Komponen Abiotik (Tak Hidup)', desc: 'Benda tak hidup yang menjadi bagian lingkungan.', model: 'rock' },
+            { type: 'Genangan Air', role: 'Komponen Abiotik (Tak Hidup)', desc: 'Air sangat dibutuhkan semua makhluk hidup.', model: 'water' },
+        ];
+
+        let interactableObjects = []; // Stores { id, mesh, data }
+        let nearestObject = null;
+
+        // --- Three.js Setup ---
+        const canvas = document.getElementById('game-canvas');
+        const scene = new THREE.Scene();
+        
+        // 1. Gradasi Langit Realistik (SkyDome)
+        const skyCanvas = document.createElement('canvas');
+        skyCanvas.width = 2;
+        skyCanvas.height = 512;
+        const skyCtx = skyCanvas.getContext('2d');
+        const skyGradient = skyCtx.createLinearGradient(0, 0, 0, 512);
+        skyGradient.addColorStop(0, '#1a75ff'); // Zenith (Puncak langit - biru tua)
+        skyGradient.addColorStop(0.5, '#66b3ff'); // Tengah (Biru cerah)
+        skyGradient.addColorStop(1, '#e6f2ff'); // Horizon (Putih kebiruan)
+        skyCtx.fillStyle = skyGradient;
+        skyCtx.fillRect(0, 0, 2, 512);
+        
+        const skyTexture = new THREE.CanvasTexture(skyCanvas);
+        const skyGeo = new THREE.SphereGeometry(500, 32, 15);
+        const skyMat = new THREE.MeshBasicMaterial({ map: skyTexture, side: THREE.BackSide, fog: false });
+        const sky = new THREE.Mesh(skyGeo, skyMat);
+        scene.add(sky);
+
+        // Menyelaraskan warna kabut dengan horizon agar ujung peta menyatu dengan langit
+        scene.fog = new THREE.FogExp2(0xe6f2ff, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.outputEncoding = THREE.sRGBEncoding; // Menghasilkan warna yang lebih realistis
+
+        // 2. Lighting: Hemisphere Light (Mensimulasikan cahaya atmosfer & pantulan tanah)
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6); // Sky color, Ground color, Intensity
+        hemiLight.position.set(0, 200, 0);
+        scene.add(hemiLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048; // Resolusi bayangan ditingkatkan
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 300;
+        dirLight.shadow.camera.left = -80;
+        dirLight.shadow.camera.right = 80;
+        dirLight.shadow.camera.top = 80;
+        dirLight.shadow.camera.bottom = -80;
+        dirLight.shadow.bias = -0.001; // Mencegah shadow acne (garis hitam pada model)
+        scene.add(dirLight);
+
+        // 3. Sistem Awan Prosedural 3D
+        const clouds = [];
+        function createClouds() {
+            const cloudGeo = new THREE.DodecahedronGeometry(3);
+            const cloudMat = new THREE.MeshLambertMaterial({ 
+                color: 0xffffff, 
+                transparent: true, 
+                opacity: 0.85,
+                flatShading: true // Memberikan efek low-poly yang profesional
+            });
+            
+            for (let i = 0; i < 25; i++) {
+                const cloudGroup = new THREE.Group();
+                // Buat 4-7 gumpalan untuk tiap formasi awan
+                const puffs = Math.floor(Math.random() * 4) + 4;
+                for(let j=0; j<puffs; j++) {
+                    const puff = new THREE.Mesh(cloudGeo, cloudMat);
+                    puff.position.set(
+                        (Math.random() - 0.5) * 8,
+                        (Math.random() - 0.5) * 3,
+                        (Math.random() - 0.5) * 6
+                    );
+                    puff.scale.setScalar(Math.random() * 0.8 + 0.5);
+                    cloudGroup.add(puff);
+                }
+                
+                cloudGroup.position.set(
+                    (Math.random() - 0.5) * 300,
+                    40 + Math.random() * 40, // Tinggi melayang
+                    (Math.random() - 0.5) * 300
+                );
+                cloudGroup.rotation.y = Math.random() * Math.PI;
+                scene.add(cloudGroup);
+                clouds.push(cloudGroup);
+            }
+        }
+        createClouds();
+
+        // --- World Generation ---
+        function createEnvironment() {
+            // Ground
+            const groundGeo = new THREE.PlaneGeometry(200, 200);
+            const groundMat = new THREE.MeshLambertMaterial({ color: 0x3CB371 }); // Medium Sea Green
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Generate random ecosystem entities
+            const usedPositions = [];
+            
+            for (let i = 0; i < 40; i++) {
+                const entityData = ecosystemEntities[Math.floor(Math.random() * ecosystemEntities.length)];
+                
+                let x, z, attempts = 0, valid = false;
+                while (!valid && attempts < 10) {
+                    x = (Math.random() - 0.5) * 160; // -80 to 80
+                    z = (Math.random() - 0.5) * 160;
+                    valid = true;
+                    for (const p of usedPositions) {
+                        if (Math.hypot(p.x - x, p.z - z) < 5) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    attempts++;
+                }
+                if (!valid) continue;
+                usedPositions.push({x, z});
+
+                const group = new THREE.Group();
+                group.position.set(x, 0, z);
+
+                // Build specific, more realistic low-poly models based on entity type
+                const type = entityData.type;
+                
+                if (type === 'Pohon Mangga') {
+                    // Batang pohon yang lebih detail
+                    const trunkG = new THREE.CylinderGeometry(0.4, 0.7, 3, 7);
+                    const trunkM = new THREE.MeshLambertMaterial({ color: 0x5C4033 });
+                    const trunk = new THREE.Mesh(trunkG, trunkM);
+                    trunk.position.y = 1.5;
+                    
+                    // Kanopi daun yang rimbun (gabungan beberapa sphere)
+                    const leavesM = new THREE.MeshLambertMaterial({ color: 0x2E8B57 });
+                    const leafPositions = [[0,3.5,0], [1,2.8,0], [-1,2.8,0], [0,2.8,1], [0,2.8,-1], [0.5,3.8,0.5], [-0.5,3.8,-0.5]];
+                    leafPositions.forEach(pos => {
+                        const leafG = new THREE.DodecahedronGeometry(1.2 + Math.random()*0.4);
+                        const leaf = new THREE.Mesh(leafG, leavesM);
+                        leaf.position.set(...pos);
+                        group.add(leaf);
+                    });
+                    group.add(trunk);
+                } 
+                else if (type === 'Rumput Liar') {
+                    const m = new THREE.MeshLambertMaterial({ color: 0x32CD32, side: THREE.DoubleSide });
+                    for(let j=0; j<8; j++){
+                        const w = 0.1 + Math.random()*0.1;
+                        const h = 0.5 + Math.random()*0.5;
+                        const bladeG = new THREE.PlaneGeometry(w, h);
+                        const blade = new THREE.Mesh(bladeG, m);
+                        blade.position.set((Math.random()-0.5)*0.8, h/2, (Math.random()-0.5)*0.8);
+                        blade.rotation.y = Math.random() * Math.PI;
+                        blade.rotation.x = (Math.random() - 0.5) * 0.4;
+                        group.add(blade);
+                    }
+                }
+                else if (type === 'Kelinci') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+                    const body = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), mat);
+                    body.scale.set(1, 0.7, 1.2);
+                    body.position.y = 0.25;
+                    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), mat);
+                    head.position.set(0, 0.4, 0.35);
+                    const earG = new THREE.CylinderGeometry(0.04, 0.04, 0.4);
+                    const earL = new THREE.Mesh(earG, mat); earL.position.set(0.1, 0.7, 0.35); earL.rotation.x = 0.2;
+                    const earR = new THREE.Mesh(earG, mat); earR.position.set(-0.1, 0.7, 0.35); earR.rotation.x = 0.2;
+                    const tail = new THREE.Mesh(new THREE.SphereGeometry(0.1), mat);
+                    tail.position.set(0, 0.25, -0.4);
+                    group.add(body, head, earL, earR, tail);
+                }
+                else if (type === 'Belalang') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0x7CFC00 });
+                    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 0.6), mat);
+                    body.rotation.x = Math.PI / 2;
+                    body.position.y = 0.2;
+                    // Kaki belakang berbentuk V terbalik
+                    const legG = new THREE.CylinderGeometry(0.02, 0.02, 0.4);
+                    const legL1 = new THREE.Mesh(legG, mat); legL1.position.set(0.1, 0.3, 0); legL1.rotation.x = -Math.PI/4; legL1.rotation.z = -0.2;
+                    const legL2 = new THREE.Mesh(legG, mat); legL2.position.set(0.1, 0.3, -0.25); legL2.rotation.x = Math.PI/4; legL2.rotation.z = -0.2;
+                    const legR1 = new THREE.Mesh(legG, mat); legR1.position.set(-0.1, 0.3, 0); legR1.rotation.x = -Math.PI/4; legR1.rotation.z = 0.2;
+                    const legR2 = new THREE.Mesh(legG, mat); legR2.position.set(-0.1, 0.3, -0.25); legR2.rotation.x = Math.PI/4; legR2.rotation.z = 0.2;
+                    group.add(body, legL1, legL2, legR1, legR2);
+                }
+                else if (type === 'Ayam') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0xCD853F });
+                    const body = new THREE.Mesh(new THREE.SphereGeometry(0.35), mat);
+                    body.scale.set(0.8, 0.9, 1.2); body.position.y = 0.3;
+                    const head = new THREE.Mesh(new THREE.SphereGeometry(0.15), mat);
+                    head.position.set(0, 0.6, 0.35);
+                    const comb = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.15, 0.15), new THREE.MeshLambertMaterial({color: 0xFF0000}));
+                    comb.position.set(0, 0.75, 0.35);
+                    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.15), new THREE.MeshLambertMaterial({color: 0xFFD700}));
+                    beak.rotation.x = Math.PI/2; beak.position.set(0, 0.6, 0.55);
+                    group.add(body, head, comb, beak);
+                }
+                else if (type === 'Katak') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                    const body = new THREE.Mesh(new THREE.SphereGeometry(0.25), mat);
+                    body.scale.set(1.2, 0.6, 1); body.position.y = 0.15;
+                    const eyeG = new THREE.SphereGeometry(0.08);
+                    const eyeMat = new THREE.MeshLambertMaterial({color: 0xFFFFFF});
+                    const eyeL = new THREE.Mesh(eyeG, eyeMat); eyeL.position.set(0.15, 0.3, 0.15);
+                    const eyeR = new THREE.Mesh(eyeG, eyeMat); eyeR.position.set(-0.15, 0.3, 0.15);
+                    const pupil = new THREE.MeshBasicMaterial({color: 0x000000});
+                    const pL = new THREE.Mesh(new THREE.SphereGeometry(0.04), pupil); pL.position.set(0.15, 0.3, 0.22);
+                    const pR = new THREE.Mesh(new THREE.SphereGeometry(0.04), pupil); pR.position.set(-0.15, 0.3, 0.22);
+                    group.add(body, eyeL, eyeR, pL, pR);
+                }
+                else if (type === 'Ular sawah') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0x556B2F });
+                    for(let j=0; j<8; j++){
+                        const s = 0.15 - (j * 0.015); // mengecil ke ekor
+                        const seg = new THREE.Mesh(new THREE.SphereGeometry(s), mat);
+                        seg.position.set(Math.sin(j)*0.2, s, -j*0.25);
+                        group.add(seg);
+                    }
+                    // Mata ular
+                    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03), new THREE.MeshBasicMaterial({color:0x000000}));
+                    eye.position.set(0.1, 0.18, 0.1);
+                    const eye2 = eye.clone(); eye2.position.set(-0.1, 0.18, 0.1);
+                    group.add(eye, eye2);
+                }
+                else if (type === 'Elang') {
+                    const bodyM = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+                    const headM = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+                    const beakM = new THREE.MeshLambertMaterial({ color: 0xFFD700 });
+                    
+                    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.5), new THREE.MeshLambertMaterial({color: 0x808080}));
+                    rock.position.y = 0.3;
+                    
+                    const body = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.8), bodyM);
+                    body.position.set(0, 1.2, 0); body.rotation.x = -Math.PI/6;
+                    
+                    const head = new THREE.Mesh(new THREE.SphereGeometry(0.18), headM);
+                    head.position.set(0, 1.6, 0.15);
+                    
+                    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2), beakM);
+                    beak.rotation.x = Math.PI/2; beak.position.set(0, 1.6, 0.35);
+                    
+                    const wingG = new THREE.BoxGeometry(1.5, 0.05, 0.4);
+                    const wing = new THREE.Mesh(wingG, bodyM);
+                    wing.position.set(0, 1.3, -0.1); wing.rotation.x = -Math.PI/6;
+                    
+                    group.add(rock, body, head, beak, wing);
+                }
+                else if (type === 'Jamur') {
+                    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 0.5), new THREE.MeshLambertMaterial({ color: 0xEEEEEE }));
+                    stem.position.y = 0.25;
+                    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16, 0, Math.PI*2, 0, Math.PI/2), new THREE.MeshLambertMaterial({ color: 0xCD5C5C }));
+                    cap.position.y = 0.4;
+                    cap.scale.set(1, 0.5, 1);
+                    group.add(stem, cap);
+                }
+                else if (type === 'Cacing Tanah') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0xD2691E });
+                    for(let j=0; j<6; j++){
+                        const seg = new THREE.Mesh(new THREE.SphereGeometry(0.05), mat);
+                        seg.position.set(Math.sin(j*1.5)*0.05, 0.05, -j*0.08);
+                        group.add(seg);
+                    }
+                }
+                else if (type === 'Batu Sungai') {
+                    const mat = new THREE.MeshLambertMaterial({ color: 0x708090 });
+                    for(let j=0; j<3; j++) {
+                        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.4 + Math.random()*0.3), mat);
+                        rock.position.set((Math.random()-0.5)*0.5, 0.2, (Math.random()-0.5)*0.5);
+                        rock.rotation.set(Math.random(), Math.random(), Math.random());
+                        group.add(rock);
+                    }
+                }
+                else if (type === 'Genangan Air') {
+                    const geo = new THREE.CylinderGeometry(1.5 + Math.random(), 1.5 + Math.random(), 0.05, 16);
+                    const mat = new THREE.MeshLambertMaterial({ color: 0x4682B4, transparent: true, opacity: 0.7 });
+                    const water = new THREE.Mesh(geo, mat);
+                    water.position.y = 0.02;
+                    group.add(water);
+                }
+
+                // Random rotation so they don't all face the same way (except water/rocks)
+                if (type !== 'Genangan Air' && type !== 'Batu Sungai') {
+                    group.rotation.y = Math.random() * Math.PI * 2;
+                }
+
+                // Enable shadow casting for all meshes inside the group
+                group.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+
+                scene.add(group);
+                
+                // Add bounding sphere for interaction detection
+                const interactionBox = new THREE.Box3().setFromObject(group);
+                const center = new THREE.Vector3();
+                interactionBox.getCenter(center);
+                
+                interactables.push({
+                    id: 'obj_' + i,
+                    group: group,
+                    center: center,
+                    data: entityData,
+                    radius: entityData.model === 'tree' ? 3 : 2 // Interaction radius
+                });
+            }
+        }
+        let interactables = [];
+
+        // --- Player Setup ---
+        const playerGroup = new THREE.Group();
+        // Menggunakan CylinderGeometry sebagai pengganti CapsuleGeometry untuk kompatibilitas Three.js r128
+        const playerBodyGeo = new THREE.CylinderGeometry(0.4, 0.4, 1.6, 16);
+        const playerBodyMat = new THREE.MeshLambertMaterial({ color: myColor });
+        const playerBody = new THREE.Mesh(playerBodyGeo, playerBodyMat);
+        playerBody.position.y = 0.8; // half height
+        playerBody.castShadow = true;
+        
+        // Add "face" / "goggles" to see forward direction
+        const goggleGeo = new THREE.BoxGeometry(0.6, 0.2, 0.3);
+        const goggleMat = new THREE.MeshLambertMaterial({ color: 0x222222 });
+        const goggle = new THREE.Mesh(goggleGeo, goggleMat);
+        goggle.position.set(0, 1.2, 0.3);
+        
+        playerGroup.add(playerBody, goggle);
+        scene.add(playerGroup);
+
+        // Third person camera offset
+        const cameraOffset = new THREE.Vector3(0, 4, -6);
+        
+        // Input Handling
+        const keys = { w: false, a: false, s: false, d: false };
+        const mobileJoystick = { x: 0, y: 0 };
+        let isDragging = false;
+        let previousTouchX = 0;
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.d = true;
+            if (e.key === 'e' || e.key === 'E') triggerInteraction();
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.d = false;
+        });
+
+        // --- Mobile Virtual Joystick Setup ---
+        const joystickZone = document.getElementById('joystick-zone');
+        const joystickKnob = document.getElementById('joystick-knob');
+        let joyActive = false;
+        let joyCenter = { x: 0, y: 0 };
+
+        const updateJoystick = (touch) => {
+            const dx = touch.clientX - joyCenter.x;
+            const dy = touch.clientY - joyCenter.y;
+            const maxDist = 40; // Max radius for knob
+            const dist = Math.min(Math.sqrt(dx*dx + dy*dy), maxDist);
+            const angle = Math.atan2(dy, dx);
+            
+            const knobX = Math.cos(angle) * dist;
+            const knobY = Math.sin(angle) * dist;
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+            
+            // Normalize (-1 to 1) and map to movement
+            mobileJoystick.x = knobX / maxDist;
+            mobileJoystick.y = -(knobY / maxDist); // Invert Y so up is positive forward
+        };
+
+        joystickZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            joyActive = true;
+            const rect = joystickZone.getBoundingClientRect();
+            joyCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            updateJoystick(e.touches[0]);
+        }, {passive: false});
+
+        joystickZone.addEventListener('touchmove', (e) => {
+            if (!joyActive) return;
+            e.preventDefault();
+            updateJoystick(e.touches[0]);
+        }, {passive: false});
+
+        const endJoystick = () => {
+            joyActive = false;
+            mobileJoystick.x = 0;
+            mobileJoystick.y = 0;
+            joystickKnob.style.transform = `translate(-50%, -50%)`;
+        };
+        joystickZone.addEventListener('touchend', endJoystick);
+        joystickZone.addEventListener('touchcancel', endJoystick);
+
+        // Screen Swipe to Rotate Camera (Mobile)
+        document.addEventListener('touchstart', (e) => {
+            if(e.target.tagName !== 'CANVAS') return;
+            isDragging = true;
+            previousTouchX = e.touches[0].clientX;
+        }, {passive: true});
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            if(e.target.tagName !== 'CANVAS') return;
+            const currentTouchX = e.touches[0].clientX;
+            const deltaX = currentTouchX - previousTouchX;
+            playerGroup.rotation.y -= deltaX * 0.01; // Swipe sensitivity
+            previousTouchX = currentTouchX;
+        }, {passive: true});
+
+        document.addEventListener('touchend', () => { isDragging = false; });
+
+        const btnAction = document.getElementById('btn-action');
+        btnAction.addEventListener('click', triggerInteraction);
+        btnAction.addEventListener('touchstart', (e) => { e.preventDefault(); triggerInteraction(); }, {passive:false});
+        document.getElementById('interact-prompt').addEventListener('click', triggerInteraction);
+
+        // --- Game Logic ---
+        let lastTime = performance.now();
+        const moveSpeed = 5.0; // units per second
+        const rotSpeed = 3.0; // rads per second
+        
+        let isGameActive = false;
+        let isModalOpen = false;
+
+        function updatePlayerMovement(delta) {
+            if (isModalOpen) return; // Freeze movement when answering quiz
+
+            let moved = false;
+            let forwardAmt = 0;
+            let rotAmt = 0;
+
+            // Keyboard input
+            if (keys.w) { forwardAmt = 1; moved = true; }
+            if (keys.s) { forwardAmt = -1; moved = true; }
+            if (keys.a) { rotAmt = 1; moved = true; }
+            if (keys.d) { rotAmt = -1; moved = true; }
+
+            // Mobile Joystick input (Overwrites if active)
+            if (mobileJoystick.y !== 0) {
+                forwardAmt = mobileJoystick.y; // Analog forward/back speed
+                moved = true;
+            }
+            if (mobileJoystick.x !== 0) {
+                rotAmt = -mobileJoystick.x; // Invert X so right joystick turns right
+                moved = true;
+            }
+
+            // Rotate
+            playerGroup.rotation.y += rotAmt * rotSpeed * delta;
+
+            // Move Forward/Backward relative to rotation
+            if (forwardAmt !== 0) {
+                const moveDist = forwardAmt * moveSpeed * delta;
+                const dir = new THREE.Vector3(0, 0, 1).applyEuler(playerGroup.rotation);
+                playerGroup.position.add(dir.multiplyScalar(moveDist));
+            }
+
+            // Boundary constraints
+            const limit = 98;
+            if (playerGroup.position.x > limit) playerGroup.position.x = limit;
+            if (playerGroup.position.x < -limit) playerGroup.position.x = -limit;
+            if (playerGroup.position.z > limit) playerGroup.position.z = limit;
+            if (playerGroup.position.z < -limit) playerGroup.position.z = -limit;
+
+            // Camera follow
+            const targetCamPos = cameraOffset.clone().applyMatrix4(playerGroup.matrixWorld);
+            camera.position.lerp(targetCamPos, 0.1);
+            
+            const lookTarget = playerGroup.position.clone();
+            lookTarget.y += 1.5; // Look slightly above base
+            camera.lookAt(lookTarget);
+        }
+
+        function checkProximity() {
+            if (isModalOpen) return;
+
+            let closestDist = Infinity;
+            let closestObj = null;
+
+            for (const obj of interactables) {
+                if (answeredObjects.has(obj.id)) continue; // Skip already answered
+
+                // Calculate distance manually since group might not center at 0,0,0 perfectly
+                const dx = playerGroup.position.x - obj.center.x;
+                const dz = playerGroup.position.z - obj.center.z;
+                const dist = Math.sqrt(dx*dx + dz*dz);
+
+                if (dist < obj.radius && dist < closestDist) {
+                    closestDist = dist;
+                    closestObj = obj;
+                }
+            }
+
+            nearestObject = closestObj;
+            
+            const prompt = document.getElementById('interact-prompt');
+            if (nearestObject) {
+                prompt.classList.remove('hidden');
+                prompt.innerText = `[E] Periksa ${nearestObject.data.type}`;
+            } else {
+                prompt.classList.add('hidden');
+            }
+        }
+
+        // --- Quiz System ---
+        function triggerInteraction() {
+            if (!nearestObject || isModalOpen) return;
+            openQuizModal(nearestObject);
+        }
+
+        function openQuizModal(obj) {
+            isModalOpen = true;
+            document.getElementById('interact-prompt').classList.add('hidden');
+            
+            const modal = document.getElementById('quiz-modal');
+            modal.classList.remove('hidden');
+            
+            document.getElementById('quiz-title').innerText = `Menemukan: ${obj.data.type}`;
+            document.getElementById('quiz-question').innerText = "Apa peran dari makhluk/benda ini di dalam ekosistem?";
+            
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = '';
+            
+            // Randomize options order
+            const shuffledOptions = [...roleOptions].sort(() => Math.random() - 0.5);
+            
+            shuffledOptions.forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left bg-slate-100 hover:bg-blue-100 border-2 border-slate-300 hover:border-blue-500 rounded-xl p-3 font-semibold text-slate-700 transition-colors";
+                btn.innerText = opt;
+                btn.onclick = () => submitAnswer(obj, opt, btn);
+                optionsContainer.appendChild(btn);
+            });
+
+            const feedback = document.getElementById('quiz-feedback');
+            feedback.classList.add('hidden');
+            feedback.className = "mt-4 p-3 rounded-xl text-center font-bold text-lg"; // Reset classes
+        }
+
+        function submitAnswer(obj, selectedRole, buttonElement) {
+            const isCorrect = (selectedRole === obj.data.role);
+            const feedback = document.getElementById('quiz-feedback');
+            const optionsContainer = document.getElementById('quiz-options');
+            
+            // Disable all buttons
+            Array.from(optionsContainer.children).forEach(btn => btn.disabled = true);
+            
+            feedback.classList.remove('hidden');
+            
+            if (isCorrect) {
+                buttonElement.classList.replace('bg-slate-100', 'bg-green-500');
+                buttonElement.classList.replace('text-slate-700', 'text-white');
+                feedback.classList.add('bg-green-100', 'text-green-800');
+                feedback.innerText = "Benar! +10 Poin. " + obj.data.desc;
+                
+                // Update Score
+                playerScore += 10;
+                document.getElementById('hud-score').innerText = playerScore;
+                answeredObjects.add(obj.id);
+                
+                // Visual feedback in 3D: make it semi-transparent or float away
+                obj.group.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material = child.material.clone();
+                        child.material.transparent = true;
+                        child.material.opacity = 0.3;
+                    }
+                });
+
+                // Sync score immediately
+                syncPlayerStateToFirebase();
+            } else {
+                buttonElement.classList.replace('bg-slate-100', 'bg-red-500');
+                buttonElement.classList.replace('text-slate-700', 'text-white');
+                feedback.classList.add('bg-red-100', 'text-red-800');
+                feedback.innerText = `Kurang tepat. Coba perhatikan lagi! (${obj.data.type})`;
+            }
+
+            // Auto close after 2.5 seconds
+            setTimeout(() => {
+                closeQuizModal();
+            }, 2500);
+        }
+
+        function closeQuizModal() {
+            document.getElementById('quiz-modal').classList.add('hidden');
+            // small delay before allowing movement again to prevent double interactions
+            setTimeout(() => {
+                isModalOpen = false;
+            }, 100);
+        }
+
+        document.getElementById('close-quiz-btn').addEventListener('click', closeQuizModal);
+
+        // --- Firebase Integration ---
+        async function initializeMultiplayer() {
+            if (!firebaseConfig) {
+                showError("Koneksi gagal: Konfigurasi Firebase tidak ditemukan.");
+                return;
+            }
+
+            document.getElementById('login-status').innerText = "Menghubungkan ke server...";
+
+            try {
+                // Mandatory Rule 3: Auth Before Queries
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                currentUser = auth.currentUser;
+                if (!currentUser) throw new Error("Gagal Autentikasi");
+
+                const playersCollection = collection(db, 'artifacts', appId, 'public', 'data', 'players');
+                playerDocRef = doc(playersCollection, currentUser.uid);
+
+                // Initial save
+                await setDoc(playerDocRef, {
+                    name: playerName,
+                    score: 0,
+                    color: myColor,
+                    x: playerGroup.position.x,
+                    y: playerGroup.position.y,
+                    z: playerGroup.position.z,
+                    rotationY: playerGroup.rotation.y,
+                    lastActive: serverTimestamp()
+                });
+
+                // Start listening to other players
+                // Mandatory Rule 2: No Complex Queries (no orderby, limit etc)
+                unsubPlayers = onSnapshot(playersCollection, (snapshot) => {
+                    const leaderboardData = [];
+
+                    snapshot.forEach(docSnap => {
+                        const data = docSnap.data();
+                        const id = docSnap.id;
+
+                        // Add to leaderboard array
+                        if (data.name && typeof data.score === 'number') {
+                            leaderboardData.push({ name: data.name, score: data.score, id: id });
+                        }
+
+                        if (id === currentUser.uid) return; // Skip self
+
+                        // Check timeout (remove stale players - simplistic client side check)
+                        // Note: Because we can't use complex queries, we process all. In production with thousands, this is bad, but fine for a classroom.
+                        
+                        if (!otherPlayers.has(id)) {
+                            // Create new player mesh
+                            const mat = new THREE.MeshLambertMaterial({ color: data.color || 0xffffff });
+                            const mesh = new THREE.Group();
+                            
+                            const pBody = new THREE.Mesh(playerBodyGeo, mat);
+                            pBody.position.y = 0.8;
+                            
+                            const pGoggle = new THREE.Mesh(goggleGeo, goggleMat);
+                            pGoggle.position.set(0, 1.2, 0.3);
+                            
+                            mesh.add(pBody, pGoggle);
+                            scene.add(mesh);
+
+                            // Create HTML label
+                            const label = document.createElement('div');
+                            label.className = 'player-label';
+                            label.innerText = data.name || 'Siswa';
+                            document.getElementById('labels-container').appendChild(label);
+
+                            otherPlayers.set(id, { mesh, label, lastUpdate: Date.now() });
+                        }
+
+                        // Update position
+                        const pData = otherPlayers.get(id);
+                        pData.mesh.position.set(data.x || 0, data.y || 0, data.z || 0);
+                        pData.mesh.rotation.y = data.rotationY || 0;
+                        pData.label.innerText = `${data.name || 'Siswa'} (${data.score || 0})`;
+                        pData.lastUpdate = Date.now();
+                    });
+
+                    // Remove disconnected players (no update for 10s)
+                    const now = Date.now();
+                    for (const [id, pData] of otherPlayers.entries()) {
+                        if (now - pData.lastUpdate > 10000) {
+                            scene.remove(pData.mesh);
+                            if (pData.label && pData.label.parentNode) {
+                                pData.label.parentNode.removeChild(pData.label);
+                            }
+                            otherPlayers.delete(id);
+                        }
+                    }
+
+                    // Update Leaderboard UI
+                    updateLeaderboardUI(leaderboardData);
+
+                }, (error) => {
+                    console.error("Firestore Listen Error:", error);
+                    showError("Koneksi terputus.");
+                });
+
+                isFirebaseReady = true;
+                startGame();
+
+            } catch (err) {
+                console.error(err);
+                showError("Gagal terhubung ke server: " + err.message);
+            }
+        }
+
+        function updateLeaderboardUI(data) {
+            const list = document.getElementById('leaderboard-list');
+            list.innerHTML = '';
+            
+            // Sort client-side (Adhering to Rule 2: No complex queries on Firestore)
+            data.sort((a, b) => b.score - a.score);
+            
+            // Take top 5
+            const top5 = data.slice(0, 5);
+            
+            top5.forEach((p, index) => {
+                const isMe = currentUser && p.id === currentUser.uid;
+                const div = document.createElement('div');
+                div.className = `flex justify-between px-2 py-1 rounded ${isMe ? 'bg-blue-100 font-bold text-blue-800' : 'text-slate-700'}`;
+                div.innerHTML = `<span>${index+1}. ${p.name}</span> <span>${p.score}</span>`;
+                list.appendChild(div);
+            });
+            
+            if (top5.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-400 text-xs py-2">Belum ada pemain</div>';
+            }
+        }
+
+        let lastSyncTime = 0;
+        function syncPlayerStateToFirebase() {
+            if (!isFirebaseReady || !currentUser || !playerDocRef) return;
+            
+            const now = performance.now();
+            // Throttle updates to max 5 times per second (every 200ms) to save writes
+            if (now - lastSyncTime < 200) return;
+            
+            try {
+                updateDoc(playerDocRef, {
+                    x: Number(playerGroup.position.x.toFixed(2)),
+                    y: Number(playerGroup.position.y.toFixed(2)),
+                    z: Number(playerGroup.position.z.toFixed(2)),
+                    rotationY: Number(playerGroup.rotation.y.toFixed(2)),
+                    score: playerScore,
+                    lastActive: serverTimestamp() // To help cleanup old sessions later
+                }).catch(e => { /* Ignore minor sync fails to prevent console spam */ });
+                lastSyncTime = now;
+            } catch (e) {}
+        }
+
+        // --- UI Flow ---
+        document.getElementById('start-btn').addEventListener('click', () => {
+            const nameInput = document.getElementById('player-name-input').value.trim();
+            if (nameInput.length < 2) {
+                showError("Nama minimal 2 huruf!");
+                return;
+            }
+            playerName = nameInput;
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('start-btn').innerText = "Memuat...";
+            
+            // Start environment buildup
+            createEnvironment();
+            
+            // Initialize multiplayer connection
+            if (firebaseConfig) {
+                initializeMultiplayer();
+            } else {
+                // Fallback for offline/standalone testing without Firebase
+                console.warn("No Firebase config. Running in offline single-player mode.");
+                startGame();
+            }
+        });
+
+        function showError(msg) {
+            const status = document.getElementById('login-status');
+            status.innerText = msg;
+            status.classList.replace('text-emerald-600', 'text-red-500');
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('start-btn').innerText = "Mulai Bermain!";
+        }
+
+        function startGame() {
+            document.getElementById('login-screen').classList.add('opacity-0', 'pointer-events-none');
+            setTimeout(() => document.getElementById('login-screen').style.display = 'none', 500);
+            
+            // Random spawn point near center
+            playerGroup.position.set((Math.random()-0.5)*10, 0, (Math.random()-0.5)*10);
+            
+            isGameActive = true;
+        }
+
+        // --- Render Loop ---
+        function updateLabels() {
+            // Update HTML labels positions to follow 3D meshes
+            const tempV = new THREE.Vector3();
+            
+            for (const [id, pData] of otherPlayers.entries()) {
+                if (!pData.mesh || !pData.label) continue;
+                
+                // Get world position of head/label anchor
+                pData.mesh.getWorldPosition(tempV);
+                tempV.y += 2.2; // Above head
+                
+                // Project to 2D screen space
+                tempV.project(camera);
+                
+                // Check if behind camera
+                if (tempV.z > 1) {
+                    pData.label.style.display = 'none';
+                    continue;
+                }
+                
+                // Convert normalized device coordinates to screen pixels
+                const x = (tempV.x *  .5 + .5) * window.innerWidth;
+                const y = (tempV.y * -.5 + .5) * window.innerHeight;
+                
+                pData.label.style.display = 'block';
+                pData.label.style.left = `${x}px`;
+                pData.label.style.top = `${y}px`;
+            }
+        }
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            
+            const delta = (time - lastTime) / 1000;
+            lastTime = time;
+            
+            // Cap delta to prevent massive jumps if tab is inactive
+            const safeDelta = Math.min(delta, 0.1); 
+
+            if (isGameActive) {
+                updatePlayerMovement(safeDelta);
+                checkProximity();
+                
+                // Check if moved to trigger network sync (only sync if moved or score changed)
+                if (keys.w || keys.a || keys.s || keys.d || mobileJoystick.x !== 0 || mobileJoystick.y !== 0) {
+                    syncPlayerStateToFirebase();
+                }
+                
+                // 4. Animasi Awan Tertiup Angin
+                clouds.forEach(c => {
+                    c.position.x += 1.5 * safeDelta; // Bergerak ke arah X
+                    if(c.position.x > 200) {
+                        c.position.x = -200; // Reset ke ujung lain jika lewat batas peta
+                        c.position.z = (Math.random() - 0.5) * 300;
+                    }
+                });
+
+                updateLabels();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop
+        requestAnimationFrame(animate);
+
+        // Cleanup on exit
+        window.addEventListener('beforeunload', () => {
+            if (unsubPlayers) unsubPlayers();
+        });
+
+    </script>
+</body>
+</html>
